@@ -496,8 +496,7 @@ static void MX_GPIO_Init(void)
 
 void read_p(int m)
 //      Read m, the degree of a primitive polynomial pp(x) used to compute the
-//      Galois field GF(2**m). Get precomputed coefficients pp[] of pp(x). Read
-//      the code length.
+//      Galois field GF(2**m).
 {
   int i;
 
@@ -542,9 +541,6 @@ void read_p(int m)
 
 void generate_gf()
 /* generate GF(2**mm) from the irreducible polynomial pp(X) in pp[0]..pp[mm]
-   lookup tables:  index->polynomial form   alpha_to[] contains j=alpha**i;
-                   polynomial form -> index form  index_of[j=alpha**i] = i
-   alpha=2 is the primitive element of GF(2**mm)
 */
  {
    register int i, mask ;
@@ -592,12 +588,7 @@ void gen_poly()
 
 
 void encode_rs()
-/* take the string of symbols in data[i], i=0..(k-1) and encode systematically
-   to produce 2*tt parity symbols in bb[0]..bb[2*tt-1]
-   data[] is input and bb[] is output in polynomial form.
-   Encoding is done by using a feedback shift register with appropriate
-   connections specified by the elements of gg[], which was generated above.
-   Codeword is   c(X) = data(X)*X**(nn-kk)+ b(X)          */
+
  {
    register int i,j ;
    int feedback ;
@@ -630,24 +621,7 @@ void encode_rs()
 
 
 void decode_rs()
-/* assume we have received bits grouped into mm-bit symbols in recd[i],
-   i=0..(nn-1),  and recd[i] is index form (ie as powers of alpha).
-   We first compute the 2*tt syndromes by substituting alpha**i into rec(X) and
-   evaluating, storing the syndromes in s[i], i=1..2tt (leave s[0] zero) .
-   Then we use the Berlekamp iteration to find the error location polynomial
-   elp[i].   If the degree of the elp is >tt, we cannot correct all the errors
-   and hence just put out the information symbols uncorrected. If the degree of
-   elp is <=tt, we substitute alpha**i , i=1..n into the elp to get the roots,
-   hence the inverse roots, the error location numbers. If the number of errors
-   located does not equal the degree of the elp, we have more than tt errors
-   and cannot correct them.  Otherwise, we then solve for the error value at
-   the error location and correct the error.  The procedure is that found in
-   Lin and Costello. For the cases where the number of errors is known to be too
-   large to correct, the information symbols as received are output (the
-   advantage of systematic encoding is that hopefully some of the information
-   symbols will be okay and that if we are in luck, the errors are in the
-   parity part of the transmitted codeword).  Of course, these insoluble cases
-   can be returned as error flags to the calling routine if desired.   */
+
  {
     //howlong_t *decoder_rs = howlong_register("decoder_rs");
 	howlong[2].name = "decoder_rs";
@@ -669,13 +643,7 @@ void decode_rs()
 
    if (syn_error)       /* if errors, try and correct */
     {
-/* compute the error location polynomial via the Berlekamp iterative algorithm,
-   following the terminology of Lin and Costello :   d[u] is the 'mu'th
-   discrepancy, where u='mu'+1 and 'mu' (the Greek letter!) is the step number
-   ranging from -1 to 2*tt (see L&C),  l[u] is the
-   degree of the elp at that step, and u_l[u] is the difference between the
-   step number and the degree of the elp.
-*/
+
 /* initialise table entries */
       d[0] = 0 ;           /* index form */
       d[1] = s[1] ;        /* index form */
