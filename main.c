@@ -27,27 +27,21 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-//#include "howlong.h"
+#include <stdbool.h>
+#include "profiling.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-// Global variables
-typedef struct {
-    const char *name;
-    uint64_t starttime;
-    uint64_t endtime;
-    uint64_t accum;
-    uint64_t lduration;
-    uint64_t maxtime;
-    uint32_t count;
-} howlong_t;
+#define MAX_RAND LONG_MAX    // Maximum value of random()
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define MAX_RAND LONG_MAX    // Maximum value of random()
-#define HOWLONG_CT (4)
+#define DEBUG_PRINTF printf
+#define MAX_EVENT_COUNT 30// Adjust this value as needed
+#define __PROF_STOPPED 0xFF
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -59,6 +53,7 @@ typedef struct {
 UART_HandleTypeDef hlpuart1;
 
 TIM_HandleTypeDef htim2;
+TIM_HandleTypeDef htim6;
 
 /* USER CODE BEGIN PV */
 int mm, nn, tt, kk, n;
@@ -66,9 +61,12 @@ int pp[10];
 int alpha_to[20], index_of[20], gg[20] ;
 int recd[20], data[20], bb[20] ;
 
-static int used = 0;
-howlong_t howlong[HOWLONG_CT] = {{0}};
-volatile uint32_t micros = 0;
+
+static uint32_t time_start; // profiler start time
+static const char *prof_name; // profiler name
+static uint32_t time_event[MAX_EVENT_COUNT]; // events time
+static const char *event_name[MAX_EVENT_COUNT]; // events name
+static uint8_t event_count = __PROF_STOPPED; // events counter
 
 
 /* USER CODE END PV */
@@ -78,6 +76,7 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_LPUART1_UART_Init(void);
 static void MX_TIM2_Init(void);
+static void MX_TIM6_Init(void);
 /* USER CODE BEGIN PFP */
 void read_p(int m);
 void generate_gf(void);
@@ -85,13 +84,6 @@ void gen_poly(void);
 void encode_rs(void);
 void decode_rs(void);
 int weight(int word);
-//void TIM2_Configuration(void);
-/*
-void howlong_in(howlong_t *self);
-void howlong_out(howlong_t *self);
-void howlong_print(void);
-uint64_t platform_get_microseconds16(void);
-*/
 
 /* USER CODE END PFP */
 
@@ -102,113 +94,95 @@ int _write(int file, char *ptr, int len)
 	HAL_UART_Transmit(&hlpuart1, (uint8_t*)ptr,len, HAL_MAX_DELAY);
 	return len;
 }
-void SysTick_Handler1(void) {
-    micros += 1000; // Increment by 1000 microseconds (1 millisecond)
-}
-void SysTick_Init1(uint32_t TickPriority)
-{
-    if (HAL_SYSTICK_Config(SystemCoreClock / 1000)) {
-        // Error handling
-        while (1) {
-            // An error occurred; stay in an infinite loop
-        }
-    }
-    HAL_NVIC_SetPriority(SysTick_IRQn, TickPriority, 0);
-}
-
-uint64_t platform_get_microseconds16(void) {
-	SysTick_Handler1();
-    uint32_t sysTickValue = micros; // Use the micros variable instead of HAL_GetTick()
-    uint32_t tim2Value = __HAL_TIM_GetCounter(&htim2);
-
-    // Combine SysTick and TIM2 values to get a 16-bit timestamp
-    uint64_t timestamp = ((sysTickValue << 16) | tim2Value)/1000000;
-    printf("\n\nTimeStamp is : %15ld sec\n\r",timestamp);
-    return timestamp;
-}
-/*
-uint64_t platform_get_microseconds16(void)
-{
-    uint32_t sysTickValue = HAL_GetTick();
-    uint32_t tim2Value = __HAL_TIM_GetCounter(&htim2);
-
-    // Combine SysTick and TIM2 values to get a 16-bit timestamp
-    uint64_t timestamp = (sysTickValue << 16) | tim2Value;
-    return timestamp;
-}
-
-howlong_t *howlong_register(char *name)
-{
-        howlong_t *ret = howlongs + used++;
-        ret->name = name;
-        return ret;
-}
-*/
-
-void howlong_in(howlong_t *self)
-{
-        self->starttime = platform_get_microseconds16();
-        printf("\n\nThe start Time is : %lld microsec\n\r",self->starttime);
-}
-void howlong_out(howlong_t *self)
-{
-        self->endtime = platform_get_microseconds16();
-        printf("\n\nThe End Time is : %15ld microsec\n\r",self->endtime);
-        uint32_t duration = self->endtime - self->starttime;
-        printf("\n\nDuration : %15ld msec \n\r",duration);
-        self->lduration = duration;
-        self->accum += duration;
-        self->count++;
-        if (duration > self->maxtime)
-                self->maxtime = duration;
-}
-/*
-void howlong_print(void)
-{
-        int i;
-        for (i=0; i<used; i++) {
-                howlong_t *h = howlong + i;
-                uint64_t mean = (h->accum / h->count);
-                printf("\r\n %d. %s \n\n\r Start Time = %15ld \n\r End Time = %15ld\n\r duration= %15ld \n\r max= %15ld\n\r mean= %15ld\n\n\r", i+1, h->name,h->starttime,h->endtime, h->lduration, h->maxtime, (uint32_t)mean);
-        }
-}
-*/
-
-void howlong_print(howlong_t *howlong)
-{
-	int i=1;
-  	uint64_t mean = (howlong->accum / howlong->count);
-	printf("\r\n %d. %s \n\n\r Start Time = %15ld \n\r End Time = %15ld\n\r duration= %15ld \n\r max= %15ld\n\r mean= %15ld\n\n\r", i+1, howlong->name,howlong->starttime,howlong->endtime,howlong->lduration, howlong->maxtime, (uint32_t)mean);
-
-}
-
 
 void input (int count)
 {
+	printf("\n--------------------INPUT === %d-----------------------\n\n\r",count+1);
   if (count == 0)
   {
 	  mm=4;
-	  nn=20;
-	  tt = 6;
-	  kk = 9;
+	  nn=10;
+	  tt = 3;
+	  kk = 4;
 	  printf("\nThe input values for m = %d, N =%d, parity = %d\n\r",mm,nn,tt);
   }
   else if (count == 1)
   {
 	  mm=4;
-	  nn=15;
-	  tt = 3;
-	  kk = 4;
+	  nn=6;
+	  tt = 1;
+	  kk = 3;
 	  printf("\nThe input values for m = %d, N =%d, parity = %d\n\r",mm,nn,tt);
   }
   else if (count == 2)
   {
 	  mm=4;
-	  nn=14;
-	  tt = 2;
-	  kk = 5;
+	  nn=20;
+	  tt = 5;
+	  kk = 10;
 	  printf("\nThe input values for m = %d, N =%d, parity = %d\n\r",mm,nn,tt);
   }
+
+}
+
+void PROFILING_START(const char *profile_name)
+{
+  prof_name = profile_name;
+  event_count = 0;
+
+  //HAL_Init(); // Initialize HAL or CMSIS for your microcontroller
+  //HAL_SYSTICK_Config(SystemCoreClock / 1000000); // Configure SysTick for 1 us resolution
+  //HAL_SYSTICK_CLKSourceConfig(SYSTICK_CLKSOURCE_HCLK);
+
+  time_start = HAL_GetTick();
+}
+void PROFILING_EVENT(const char *event)
+{
+  if (event_count == __PROF_STOPPED)
+    return;
+
+  if (event_count < MAX_EVENT_COUNT)
+  {
+    time_event[event_count] = HAL_GetTick() - time_start;
+    event_name[event_count] = event;
+    event_count++;
+  }
+}
+void PROFILING_STOP(void)
+{
+  int32_t timestamp;
+  int32_t delta_t;
+  //int32_t tick_per_1us = SystemCoreClock / 1000000;
+  int32_t time_prev = 0;
+  const char* targetString = "Runtime ECC Code";
+
+  if (event_count == __PROF_STOPPED)
+  {
+    DEBUG_PRINTF("\r\nWarning: PROFILING_STOP WITHOUT START.\r\n");
+    return;
+  }
+
+  DEBUG_PRINTF("Profiling \"%s\" sequence: \r\n\n"
+               "--Event---------------------------------------------------------------|--timestamp--|----delta_t---\r\n\n", prof_name); //|--Cycles_per_µs--
+
+  for (int i = 0; i < event_count; i++)
+  {
+	timestamp = time_event[i];  //timestamp = (time_event[i] - time_start) / tick_per_1us;
+	if (strncmp(event_name[i], targetString, strlen(targetString)) == 0)
+	    {
+			delta_t = (i != 2) ? timestamp - time_event[i - 3] : timestamp;
+	    }
+	else
+		{
+			delta_t = timestamp - time_prev;
+		}
+	time_prev = timestamp;
+
+    DEBUG_PRINTF("%-70s:%9lu µs | +%9lu µs\r\n", event_name[i], (unsigned long)timestamp, (unsigned long)delta_t); 		//| +%9lu µs 	,(unsigned long)tick_per_1us
+  }
+
+  DEBUG_PRINTF("\r\n");
+  event_count = __PROF_STOPPED;
 }
 /* USER CODE END 0 */
 
@@ -235,7 +209,6 @@ int main(void)
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-  SysTick_Init1(1);
 
   /* USER CODE END SysInit */
 
@@ -243,99 +216,106 @@ int main(void)
   MX_GPIO_Init();
   MX_LPUART1_UART_Init();
   MX_TIM2_Init();
+  MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
-  register int i;
-  // Initialize howlongs array
-  for (int i = 0; i < HOWLONG_CT; i++)
+  int check =0;
+  PROFILING_START("RS ECC startup timing");
+  //Check variable to verify timing
+  while (check<1)
   {
-          howlong[i].name = "";
-          howlong[i].starttime = 0;
-          howlong[i].endtime = 0;
-          howlong[i].accum = 0;
-          howlong[i].lduration = 0;
-          howlong[i].maxtime = 0;
-          howlong[i].count = 0;
-      }
-    howlong[0].name = "reed_solomon_code";
-    //howlong_t *reed_solomon_code = howlong_register("reed_solomon_code");
-    //howlong_t *operation4 = howlong_register("operation4");
-    howlong_in(&howlong[0]);
-    for(int count=0;count<3;count++)
-  	{
-  		if (count==0)
-  		{
-  		input(count);
-  		}
-  		else if (count==1)
-  		{
-  		input(count);
-  		}
-  		else if (count==2)
-  		{
-  		input(count);
-  		}
+	  register int i=0;
+	  for(int count=0;count<3;count++)
+    	{
+		   	if (count==0)
+    		{
+    		input(count);
+    		}
+    		else if (count==1)
+    		{
+    		input(count);
+    		}
+    		else if (count==2)
+    		{
+    		input(count);
+    		}
 
-  		//declaration(mm,nn);
-  		read_p(mm);
-  		generate_gf() ;
-  		printf("\n\nLook-up tables for GF(2**%2d)\n\n\r",mm) ;
-  		printf("  i   alpha_to[i]  index_of[i]\n\r") ;
-  		for (i=0; i<=nn; i++)
-  		printf("%3d      %3d          %3d\n\r",i,alpha_to[i],index_of[i]) ;
-  		printf("\n\n\r") ;
+    		//declaration(mm,nn);
+    		read_p(mm);
+    		generate_gf() ;
+    		printf("Look-up tables for GF(2**%2d)\n\n\r",mm) ;
+    		printf("  i   alpha_to[i]  index_of[i]\n\r") ;
+    		for ( i=0; i<=nn; i++)
+    		printf("%3d      %3d          %3d\n\r",i,alpha_to[i],index_of[i]) ;
+    		printf("\n\r") ;
 
-  		gen_poly() ;
+    		gen_poly() ;
 
-  		for  (i=0; i<kk; i++)   data[i] = 0 ;
-  		printf("\n The message is: \n\r");
-  		for  (i=0; i<kk; i++)
-  		{
-  		data[i] = (rand()>>10) % n;
-  		printf("%5d",data[i]);
-  		}
-  		printf("--------------------------\n\r");
-  		encode_rs() ;
-  		printf("--------------------------\n\r");
-  		for (i=0; i<nn-kk; i++)  recd[i] = bb[i] ;
-  		for (i=0; i<kk; i++) recd[i+nn-kk] = data[i] ;
+    		for  (i=0; i<kk; i++)   data[i] = 0 ;
+    		printf("The message is: ");
+    		for  (i=0; i<kk; i++)
+    		{
+    		data[i] = (rand()>>10) % n;
+    		printf("%5d",data[i]);
+    		}
+    		printf("\n\r");
 
-  		data[kk/2] = 3 ;
-  		data[kk+1/2] = 2 ;
+    		if (count==0)
+			{
+			encode_rs() ;
+			PROFILING_EVENT("(10,4,6) Encoder: Detect and Correct at Least 3 Error Values");
 
-  		for (i=0; i<nn; i++)
-  		recd[i] = index_of[recd[i]] ;
+			}
+			else if (count==1)
+			{
+			encode_rs() ;
+			PROFILING_EVENT("(6,3,2) Encoder: Detect Only 1 Error");
+			}
+			else if (count==2)
+			{
+			encode_rs() ;
+			PROFILING_EVENT("(20,10,5) Encoder: Big Input with High Error Correction Capability");
+			}
 
-  		decode_rs() ;
+    		//encode_rs() ;
+    		for (i=0; i<nn-kk; i++)  recd[i] = bb[i] ;
+    		for (i=0; i<kk; i++) recd[i+nn-kk] = data[i] ;
 
-  		printf("\n\n\rResults for Reed-Solomon code (n =%2d, k =%2d, t =%2d)\n\n\r",nn,kk,tt) ;
-  		printf("  i  data[i]   recd[i](decoded)\n\r"); //(data, recd in polynomial form)
-  		for (i=0; i<nn-kk; i++)
-  		printf("%3d    %3d      %3d\n\r",i, bb[i], recd[i]) ;
-  		for (i=nn-kk; i<nn; i++)
-  		printf("%3d    %3d      %3d\n\r",i, data[i-nn+kk], recd[i]) ;
+    		data[kk/2] = 3 ;
+    		data[kk+1/2] = 2 ;
 
-  		/*if (h==0)
-  		{
-  			howlong_out(operation1);
-  			howlong_print();
-  		}
-  		else if (h==1)
-  		{
-  			howlong_out(operation2);
-  			howlong_print();
-  		}
-  		else if (h==2)
-  		{
-  			howlong_out(operation3);
-  			howlong_print();
-  		}
-  		*/
-  	}
-  	printf("\n\n\r");
-  	printf("--------------------------\n\r");
-  	howlong_out(&howlong[0]);
-  	howlong_print(&howlong[0]);
-  	printf( "\n\rThe end--------------" );
+    		for (i=0; i<nn; i++)
+    		recd[i] = index_of[recd[i]] ;
+
+    		if (count==0)
+			{
+    		decode_rs() ;
+			PROFILING_EVENT("(10,4,6) Decoder: Detect and Correct at Least 3 Error Values");
+
+			}
+			else if (count==1)
+			{
+			decode_rs() ;
+			PROFILING_EVENT("(6,3,2) Decoder: Detect Only 1 Error Value");
+			}
+			else if (count==2)
+			{
+			decode_rs() ;
+			PROFILING_EVENT("(20,10,5) Decoder: Big Input with High Error Correction Capability");
+			}
+
+    		printf("\n\rResults for Reed-Solomon code (n =%2d, k =%2d, t =%2d)\n\n\r",nn,kk,tt) ;
+    		printf("  i  data[i]   recd[i](decoded)\n\r"); //(data, recd in polynomial form)
+    		for (i=0; i<nn-kk; i++)
+    		printf("%3d    %3d      %3d\n\r",i, bb[i], recd[i]) ;
+    		for (i=nn-kk; i<nn; i++)
+    		printf("%3d    %3d      %3d\n\r",i, data[i-nn+kk], recd[i]) ;
+    		PROFILING_EVENT("Runtime ECC Code");
+    	}
+    	printf("\n\n\r");
+    	check =check + 1;
+  }
+  PROFILING_STOP();
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
